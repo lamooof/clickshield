@@ -95,9 +95,31 @@ outbox; `/v1/operations` также показывает очередь анал
 
 ## Резервные копии
 
-`scripts/backup.sh` использует custom-format `pg_dump`, проверяет каталог через
-`pg_restore -l`, защищает файлы правами 600, исключает параллельный запуск и удаляет
-копии старше 14 дней. Это проверка читаемости архива, а не пробное восстановление.
+`scripts/backup.sh` передаёт custom-format `pg_dump` прямо в `age`: на диск попадает
+только шифротекст `.dump.age`. Нужны `age`, `flock` и Docker Compose. Файлы имеют
+права 600, каталог — 700; параллельный запуск исключён, копии старше 14 дней удаляются.
+Обязателен `CLICKSHIELD_BACKUP_RECIPIENTS_FILE` — файл публичных получателей age,
+по одному на строку. Без него, при пустом/неверном списке или ошибке age скрипт
+завершается без публикации копии, без перехода к незашифрованному формату.
+Проверяются коды завершения `pg_dump` и шифрования. Проверка `pg_restore -l`
+перенесена на машину восстановления: на сервере нет закрытого ключа.
+
+Создайте ключ на отдельной доверенной машине с установленным age:
+
+```bash
+umask 077
+age-keygen -o clickshield-backup.key
+age-keygen -y clickshield-backup.key > backup-recipients.txt
+```
+
+На сервер скопируйте **только** `backup-recipients.txt`, например в
+`/etc/clickshield/backup-recipients.txt`. Файл должен быть доступен для чтения
+пользователю backup service, а изменять его должен только администратор.
+Закрытый `clickshield-backup.key` храните вне сервера и отдельно от архивов,
+с резервной копией в защищённом офлайн-хранилище. Потеря всех подходящих ключей
+делает восстановление невозможным. При ротации добавьте нового получателя
+и проверьте восстановление; старые архивы требуют старого ключа.
+
 По умолчанию скрипт ожидает `/opt/clickshield/compose.yml` и `/opt/clickshield/.env`.
 Для запуска из checkout укажите реальные пути:
 
@@ -105,18 +127,31 @@ outbox; `/v1/operations` также показывает очередь анал
 CLICKSHIELD_APP_DIR="$PWD" \
 CLICKSHIELD_COMPOSE_FILE=docker-compose.prod.yml \
 CLICKSHIELD_ENV_FILE=.env.production \
+CLICKSHIELD_BACKUP_RECIPIENTS_FILE=/etc/clickshield/backup-recipients.txt \
   bash scripts/backup.sh
 ```
 
 Шаблон systemd timer запускает backup ежедневно в 02:30 UTC. Для установки в
 `/opt/clickshield` скопируйте туда `backup.sh`; в service задайте
 `CLICKSHIELD_COMPOSE_FILE` и `CLICKSHIELD_ENV_FILE`, если файлы называются иначе.
-Установите `scripts/clickshield-backup.service` и `.timer` в `/etc/systemd/system/`,
-затем выполните `systemctl daemon-reload` и
+Установите `scripts/clickshield-backup.service` и `.timer` в `/etc/systemd/system/`.
+Через `systemctl edit clickshield-backup.service` добавьте обязательную настройку:
+
+```ini
+[Service]
+Environment=CLICKSHIELD_BACKUP_RECIPIENTS_FILE=/etc/clickshield/backup-recipients.txt
+```
+
+Затем выполните `systemctl daemon-reload` и
 `systemctl enable --now clickshield-backup.timer`.
 
 `scripts/pull_backup.sh` копирует последнюю копию с `/opt/clickshield/backups` по SSH,
-сверяет SHA-256 и хранит локальные копии 30 дней. Требуются SSH, rsync и sha256sum:
+сверяет SHA-256 шифротекста и хранит локальные копии 30 дней. Требуются SSH, rsync,
+sha256sum и flock. age и закрытый ключ для скачивания не нужны. Скрипт поддерживает
+новые `.dump.age`/`.replay.tar.gz.age` и старые незашифрованные пары; выбирает
+последний dump по метке времени и скачивает replay с тем же форматом и меткой.
+Частичная или не прошедшая проверку загрузка не публикуется под итоговым именем;
+повторный запуск также заменяет повреждённую локальную копию:
 
 ```bash
 CLICKSHIELD_BACKUP_HOST=backup-user@example.com bash scripts/pull_backup.sh
@@ -131,7 +166,11 @@ CLICKSHIELD_BACKUP_HOST=backup-user@example.com bash scripts/pull_backup.sh
 Пользователь SSH должен иметь право читать архивы; настройте это отдельно.
 
 Копии содержат пользовательские данные и зашифрованные секреты интеграций.
-Шифруйте хранилище копий, ограничивайте доступ и храните `ENCRYPTION_KEY` отдельно.
+Храните `ENCRYPTION_KEY` отдельно от архивов и закрытого ключа age.
+Обновите оба скрипта и настройте получателей до следующего запуска timer.
+Старые копии автоматически не шифруются; оба скрипта продолжают удалять старые
+форматы по прежним срокам. При откате старые скрипты не скачивают `.age`, а
+старый backup снова создаёт незашифрованные архивы.
 Политика удаления данных из рабочей БД не удаляет их из старых архивов.
 
 Replay хранится в отдельном bucket: `pg_dump` сохраняет только его метаданные.
@@ -149,21 +188,44 @@ Compose. Хранилище доступно только внутри Docker-с
 
 Для MinIO в отдельном Docker volume `backup.sh` также сохраняет архив объектов,
 если задан `CLICKSHIELD_REPLAY_VOLUME` с точным именем тома. Скрипт временно
-останавливает работающий worker, делает dump, затем копирует том read-only через
-`alpine:3.22` и запускает worker обратно, включая выход при ошибке. App продолжает
-принимать визиты; GC в это время остановлен. Другие процессы не должны удалять
-объекты. Пара `.dump` и `.replay.tar.gz` имеет одинаковую метку времени и права 600.
+останавливает работающий worker, делает dump, затем передаёт tar-поток из read-only
+тома через `alpine:3.22` прямо в age и запускает worker обратно, включая выход
+при ошибке. App продолжает принимать визиты; GC в это время остановлен. Другие
+процессы не должны удалять объекты. Пара `.dump.age` и `.replay.tar.gz.age` имеет одинаковую метку времени
+и права 600. Dump публикуется последним, только после успешного шифрования обоих
+потоков. Шифрование в этом скрипте не распространяется на внешние S3 backup jobs.
 Для systemd задайте эту переменную через `Environment=` в override backup service.
 
 ## Пробное восстановление
 
-Используйте отдельный PostgreSQL с пустой БД `clickshield_restore` и ролью
-`clickshield`; никогда не направляйте этот пример в рабочую базу:
+На доверенной машине расшифруйте **полностью** оба архива в закрытый временный
+каталог до чтения: age проверяет целостность потока, и при ошибке частичный
+результат нельзя использовать. Нужны соответствующий закрытый ключ age и
+`ENCRYPTION_KEY` приложения для доступа к секретам интеграций. Пример для пары:
+используйте отдельный PostgreSQL с пустой БД `clickshield_restore` и ролью
+`clickshield`, задайте его URL в `CLICKSHIELD_RESTORE_DATABASE_URL`.
+Никогда не направляйте пример в рабочую базу.
 
 ```bash
+set -euo pipefail
+umask 077
+restore_dir="$(mktemp -d)"
+trap 'rm -rf "$restore_dir"' EXIT
+age --decrypt -i /secure/clickshield-backup.key \
+  -o "$restore_dir/database.dump" /path/to/clickshield-TIMESTAMP.dump.age
+age --decrypt -i /secure/clickshield-backup.key \
+  -o "$restore_dir/replay.tar.gz" /path/to/clickshield-TIMESTAMP.replay.tar.gz.age
+pg_restore --list "$restore_dir/database.dump" >/dev/null
+tar -tzf "$restore_dir/replay.tar.gz" >/dev/null
+# Восстановите объекты в отдельный пустой volume/bucket до запуска worker.
 pg_restore --exit-on-error --no-owner --no-privileges \
-  --dbname="$CLICKSHIELD_RESTORE_DATABASE_URL" /path/to/clickshield.dump
+  --dbname="$CLICKSHIELD_RESTORE_DATABASE_URL" "$restore_dir/database.dump"
 ```
+
+Для копии без replay пропустите второй вызов age и проверку tar. Содержимое
+`restore_dir` не зашифровано: используйте защищённый диск или tmpfs. Удаление
+временного каталога не гарантирует физического стирания данных с носителя.
+Проверка каталога не заменяет пробное восстановление.
 
 Проверьте таблицы, `schema_migrations`, количество данных и старт соответствующей
 версии приложения с тем же `ENCRYPTION_KEY`. Изолируйте восстановленный сервис от

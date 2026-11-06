@@ -37,5 +37,7 @@ node_modules/
 output/
 backups/
 *.dump
+*.dump.age
+*.replay.tar.gz.age
 *.mmdb
 !internal/geo/testdata/GeoIP2-City-Test.mmdb

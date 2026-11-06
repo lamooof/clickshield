@@ -1,8 +1,9 @@
-.PHONY: help run test test-integration test-js check check-fmt check-js fmt vet build vendor docker-up docker-down
+.PHONY: help run test test-integration test-js test-backup check check-fmt check-js fmt vet build vendor docker-up docker-down
 
 help:
 	@echo 'make check             Format, vet, Go race tests, JS syntax and tests'
 	@echo 'make test-integration  Race tests with dedicated PostgreSQL (CLICKSHIELD_TEST_DATABASE_URL)'
+	@echo 'make test-backup       Backup script tests (Python 3, age and age-keygen required)'
 	@echo 'make build             Build bin/clickshield with embedded frontend'
 	@echo 'make run               Start server (configuration must be exported)'
 	@echo 'make fmt               Format Go sources'
@@ -22,6 +23,9 @@ test-integration:
 
 test-js:
 	npm test
+
+test-backup:
+	python3 scripts/backup_test.py -v
 
 check: check-fmt vet test check-js test-js
 

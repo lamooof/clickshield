@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 app_dir="${CLICKSHIELD_APP_DIR:-/opt/clickshield}"
 cd "$app_dir"
@@ -11,36 +12,42 @@ chmod 700 "$backup_dir"
 exec 9>"$backup_dir/.backup.lock"
 flock -n 9 || exit 0
 
-archive="$backup_dir/clickshield-$(date -u +%Y%m%dT%H%M%SZ).dump"
-temporary="$(mktemp "$backup_dir/.backup.XXXXXXXX")"
-objects="${archive%.dump}.replay.tar.gz"
+recipients_file="${CLICKSHIELD_BACKUP_RECIPIENTS_FILE:?set CLICKSHIELD_BACKUP_RECIPIENTS_FILE to an age recipients file}"
+# Validate recipients before stopping the worker or reading any private data.
+age --encrypt --recipients-file "$recipients_file" </dev/null >/dev/null
+archive="$backup_dir/clickshield-$(date -u +%Y%m%dT%H%M%SZ).dump.age"
+objects="${archive%.dump.age}.replay.tar.gz.age"
+[[ ! -e "$archive" && ! -e "$objects" ]] || { echo 'Backup already exists for this timestamp' >&2; exit 1; }
+temporary="$(mktemp -d "$backup_dir/.backup.XXXXXXXX")"
 resume_worker=false
+objects_published=false
+complete=false
 cleanup() {
-  rm -f "$temporary" "$objects.partial"
+  rm -rf "$temporary"
+  if "$objects_published" && ! "$complete"; then rm -f "$objects"; fi
   if "$resume_worker"; then
     docker compose --env-file "$env_file" -f "$compose_file" up -d --no-deps worker
   fi
 }
 trap cleanup EXIT
-chmod 600 "$temporary"
 if [[ -n "${CLICKSHIELD_REPLAY_VOLUME:-}" ]]; then
   if [[ -n "$(docker compose --env-file "$env_file" -f "$compose_file" ps --status running -q worker)" ]]; then
     resume_worker=true
     docker compose --env-file "$env_file" -f "$compose_file" stop -t 15 worker
   fi
 fi
-docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres pg_dump -U clickshield -d clickshield -Fc >"$temporary"
-docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres pg_restore -l <"$temporary" >/dev/null
+docker compose --env-file "$env_file" -f "$compose_file" exec -T postgres pg_dump -U clickshield -d clickshield -Fc \
+  | age --encrypt --recipients-file "$recipients_file" >"$temporary/database.age"
 if [[ -n "${CLICKSHIELD_REPLAY_VOLUME:-}" ]]; then
   docker run --rm --mount "type=volume,src=$CLICKSHIELD_REPLAY_VOLUME,dst=/data,readonly" \
-    --mount "type=bind,src=$backup_dir,dst=/backup" alpine:3.22 \
-    sh -c 'umask 077; tar -czf "/backup/$1.partial" -C /data .' sh "$(basename "$objects")"
-  tar -tzf "$objects.partial" >/dev/null
-  mv "$objects.partial" "$objects"
+    alpine:3.22 tar -czf - -C /data . \
+    | age --encrypt --recipients-file "$recipients_file" >"$temporary/replay.age"
+  mv "$temporary/replay.age" "$objects"
+  objects_published=true
 fi
-mv "$temporary" "$archive"
-cleanup
-trap - EXIT
-find "$backup_dir" -maxdepth 1 -type f \( -name 'clickshield-*.dump' -o -name 'clickshield-*.replay.tar.gz' \) -mtime +13 -delete
-echo "Created and checked $archive"
-if [[ -f "$objects" ]]; then echo "Created and checked $objects"; fi
+# Publish the database last: pull_backup.sh only selects completed pairs.
+mv "$temporary/database.age" "$archive"
+complete=true
+find "$backup_dir" -maxdepth 1 -type f \( -name 'clickshield-*.dump' -o -name 'clickshield-*.replay.tar.gz' -o -name 'clickshield-*.dump.age' -o -name 'clickshield-*.replay.tar.gz.age' \) -mtime +13 -delete
+echo "Created encrypted backup: $archive"
+if [[ -f "$objects" ]]; then echo "Created encrypted backup: $objects"; fi
