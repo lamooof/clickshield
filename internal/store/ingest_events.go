@@ -30,7 +30,7 @@ func writeBatchEvents(ctx context.Context, tx pgx.Tx, b antifraud.PreparedBatch)
  SELECT $2,$3,e.index,e.at,e.page_url,e.event->>'type',trunc((e.event->>'vw')::numeric)::int,trunc((e.event->>'vh')::numeric)::int,
  COALESCE((e.event->>'document_height')::double precision,0),COALESCE((e.event->>'x')::double precision,0),COALESCE((e.event->>'y')::double precision,0)+COALESCE((e.event->>'scroll_y')::double precision,0),COALESCE((e.event->>'depth')::double precision,0)
  FROM (`+batchRecords+`) e WHERE e.event->>'type' IN ('click','scroll') AND (e.event->>'vw')::numeric>0 AND (e.event->>'vh')::numeric>0 ON CONFLICT DO NOTHING`, args...)
-	batch.Queue(`SELECT EXISTS(SELECT 1 FROM sessions WHERE project_id=$1 AND visitor_key=$2 AND last_seen_at>now()-interval '30 days' AND current_classification=ANY($3))`, b.Project.ID, b.Batch.VisitorID, b.BlockedClasses)
+	batch.Queue(visitorBlockedSQL, b.Project.ID, b.Batch.VisitorID, b.Batch.Fingerprint, b.BlockedClasses)
 	results := tx.SendBatch(ctx, batch)
 	defer results.Close()
 	tag, err := results.Exec()
