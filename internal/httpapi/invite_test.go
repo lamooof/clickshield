@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,5 +37,27 @@ func TestFormOriginValidation(t *testing.T) {
 				t.Fatalf("sameOrigin = %t, want %t", got, tc.allowed)
 			}
 		})
+	}
+}
+
+func TestInviteTokenIsNotLogged(t *testing.T) {
+	var logs bytes.Buffer
+	s := &Server{log: slog.New(slog.NewJSONHandler(&logs, nil))}
+	handler := s.logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	for _, method := range []string{"GET", "POST"} {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/invite/secret-token?error=invalid", nil))
+	}
+	if strings.Contains(logs.String(), "secret-token") || !strings.Contains(logs.String(), "/invite/[REDACTED]") {
+		t.Fatal(logs.String())
+	}
+}
+
+func TestTrackerIncludesRuntimeModules(t *testing.T) {
+	res := httptest.NewRecorder()
+	(&Server{}).tracker(res, httptest.NewRequest("GET", "/tracker.js", nil))
+	for _, part := range []string{"function trackerTransport", "function trackerSession", "window.ClickShield ="} {
+		if !strings.Contains(res.Body.String(), part) {
+			t.Fatalf("missing tracker component %s", part)
+		}
 	}
 }
