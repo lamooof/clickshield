@@ -45,6 +45,11 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: go mod verify
+      - name: Verify encrypted backups
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
+          make test-backup
       - name: Start isolated S3-compatible storage
         env:
           MINIO_ROOT_USER: ci-minio-test
