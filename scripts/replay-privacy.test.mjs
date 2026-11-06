@@ -5,7 +5,7 @@ import test from 'node:test';
 
 // Exercise the recorder's private sanitizer without starting DOM recording.
 const source = readFileSync(new URL('../internal/httpapi/assets/replay-recorder.js', import.meta.url), 'utf8');
-const prefix = source.slice(0, source.indexOf('window.ClickShieldReplay='));
+const prefix = source.slice(0, source.indexOf('let activeStop ='));
 const context = {};
 runInNewContext(prefix + 'globalThis.sanitize = sanitize; })();', context);
 const sanitize = event => context.sanitize(event, value => value);

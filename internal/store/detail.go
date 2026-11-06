@@ -25,46 +25,10 @@ func (s *Store) SessionDetail(ctx context.Context, id string) (domain.SessionDet
 	} else if !IsNotFound(e) {
 		return d, e
 	}
-	rows, e := s.Pool.Query(ctx, `SELECT id,risk_score,classification,source,created_at FROM classifications WHERE session_id=$1 ORDER BY created_at DESC,id DESC`, id)
+	d.Classifications, e = s.sessionClassifications(ctx, id)
 	if e != nil {
 		return d, e
 	}
-	for rows.Next() {
-		var c domain.Classification
-		c.SessionID = id
-		if e = rows.Scan(&c.ID, &c.RiskScore, &c.Classification, &c.Source, &c.CreatedAt); e != nil {
-			rows.Close()
-			return d, e
-		}
-		rr, er := s.Pool.Query(ctx, `SELECT code,weight,details FROM classification_reasons WHERE classification_id=$1 ORDER BY id`, c.ID)
-		if er != nil {
-			rows.Close()
-			return d, er
-		}
-		for rr.Next() {
-			var r domain.Reason
-			var raw []byte
-			if er = rr.Scan(&r.Code, &r.Weight, &raw); er != nil {
-				rr.Close()
-				rows.Close()
-				return d, er
-			}
-			_ = json.Unmarshal(raw, &r.Details)
-			c.Reasons = append(c.Reasons, r)
-		}
-		if er = rr.Err(); er != nil {
-			rr.Close()
-			rows.Close()
-			return d, er
-		}
-		rr.Close()
-		d.Classifications = append(d.Classifications, c)
-	}
-	if e = rows.Err(); e != nil {
-		rows.Close()
-		return d, e
-	}
-	rows.Close()
 	tr, e := s.Pool.Query(ctx, `SELECT event_type,(payload->>'ts')::bigint,COALESCE((payload->>'x')::double precision,0),COALESCE((payload->>'y')::double precision,0),COALESCE((payload->>'vw')::double precision,0),COALESCE((payload->>'vh')::double precision,0),COALESCE((payload->>'depth')::double precision,0) FROM raw_events WHERE session_id=$1 AND event_type IN ('mousemove','click','scroll') ORDER BY event_time,id LIMIT 1500`, id)
 	if e != nil {
 		return d, e

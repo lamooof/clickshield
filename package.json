@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "check": "node scripts/check-js.mjs",
-    "test": "node --test sdk/index.test.mjs scripts/replay-privacy.test.mjs",
+    "test": "node --test sdk/index.test.mjs scripts/*.test.mjs",
     "vendor": "node scripts/vendor-replay.mjs"
   },
   "dependencies": {
