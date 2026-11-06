@@ -85,10 +85,17 @@ func TestInviteBrowserRegistration(t *testing.T) {
 			}
 			email := "browser-" + token[:10] + "@example.test"
 			t.Cleanup(func() { env.st.Pool.Exec(context.Background(), `DELETE FROM admin_users WHERE username=$1`, email) })
-			cmd := exec.Command("node", "../../scripts/invite-browser.mjs")
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "node", "../../scripts/invite-browser.mjs")
+			// Bound output draining if a browser keeps the pipes open after Node exits.
+			cmd.WaitDelay = 5 * time.Second
 			cmd.Env = append(os.Environ(), "CLICKSHIELD_INVITE_BROWSER="+engine, "CLICKSHIELD_INVITE_BASE="+env.srv.URL, "CLICKSHIELD_INVITE_TOKEN="+token, "CLICKSHIELD_INVITE_EMAIL="+email)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
+				if ctx.Err() != nil {
+					t.Fatalf("browser flow timed out: %v\n%s", ctx.Err(), out)
+				}
 				t.Fatalf("browser flow failed: %v\n%s", err, out)
 			}
 			t.Log(string(out))
