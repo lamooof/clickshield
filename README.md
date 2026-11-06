@@ -27,7 +27,9 @@ Go API принимает события браузерного трекера, 
 ## Быстрый запуск
 
 Нужны Docker Engine с Compose v2 и OpenSSL. Docker собирает Go-бинарник со
-встроенным frontend; Node.js для этого запуска не требуется.
+встроенным frontend; Node.js для этого запуска не требуется. Команды выполняйте
+из корня репозитория. При сборке нужен доступ к Go-модулям, iptoasn.com и GitHub:
+образ загружает базы IP→ASN и GeoLite2 City.
 
 ```bash
 cp .env.example .env
@@ -68,7 +70,8 @@ python3 -m http.server 8081 --directory examples/demo-site
 ## Разработка и проверка
 
 Нужны Go 1.26+ (версия модуля — в `go.mod`), Node.js 22+ для инструментов frontend
-и PostgreSQL 17 для полного набора проверок. Dockerfile использует Go 1.27.
+и PostgreSQL 18 для полного набора проверок, как в Compose и CI.
+Dockerfile использует Go 1.27.
 
 ```bash
 npm ci --ignore-scripts
@@ -112,8 +115,10 @@ S3-совместимого хранилища и переменных `REPLAY_S
 
 Очередь доставки использует PostgreSQL
 transactional outbox; Redis не требуется. Бинарник содержит UI и rrweb,
-загрузка библиотек с CDN при работе не нужна. Docker-сборка загружает базу
-IP→ASN, поэтому её содержимое зависит от даты сборки.
+загрузка библиотек с CDN при работе не нужна. Docker-сборка загружает базы
+IP→ASN и GeoLite2 City в `/app/ip2asn.tsv.gz` и `/app/GeoLite2-City.mmdb`.
+Compose уже задаёт эти пути; отдельное монтирование баз для обычного запуска
+не требуется. Содержимое баз зависит от даты их загрузки при сборке.
 
 Правила внесения изменений — в [CONTRIBUTING.md](CONTRIBUTING.md).
 Об ограничениях записи и хранении данных — в [руководстве по приватности](docs/privacy.md).

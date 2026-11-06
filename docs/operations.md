@@ -6,12 +6,14 @@
 
 Нужны Docker Compose v2 и HTTPS reverse proxy. Репозиторий содержит переносимый
 `docker-compose.prod.yml`; локальные `deploy.py` и `deploy_site_tracker.py`
-игнорируются Git и для запуска не нужны.
+игнорируются Git и для запуска не нужны. Команды ниже выполняйте из корня
+репозитория. Compose использует PostgreSQL 18 и том в `/var/lib/postgresql`.
 
 ```bash
 cp .env.example .env.production
 chmod 600 .env.production
 # Заполните секреты, имя/ключ проекта и точные HTTPS origins своего сайта.
+# Генерация секретов описана в быстром запуске README.
 # COOKIE_SECURE/TRUST_PROXY_HEADERS в production Compose принудительно true.
 docker build -t clickshield:YOUR_RELEASE .
 ```
@@ -40,9 +42,20 @@ API и MCP имеют собственную авторизацию. Настр�
 с учётом replay. [Требования безопасности](../SECURITY.md).
 
 Проверьте внешний `/healthz`, вход, получение трекера и реальный визит с разрешённого
-origin. Сборка автоматически загружает IP→ASN-базу; GeoIP City MMDB предоставляется
-отдельно и монтируется read-only. После обновления бинарника tracker и assets
-должны обновиться на сайте; долгий proxy/CDN-кэш может задержать новую версию.
+origin. Docker-сборка загружает IP→ASN-базу и GeoLite2 City MMDB в
+`/app/ip2asn.tsv.gz` и `/app/GeoLite2-City.mmdb`; Compose использует эти пути
+по умолчанию. Отдельное монтирование для обычного запуска не требуется.
+При сборке нужен доступ к Go-модулям, iptoasn.com и GitHub. Для обновления
+встроенных баз пересоберите образ без кэша загрузки:
+
+```bash
+docker build --no-cache -t clickshield:YOUR_RELEASE .
+```
+
+Либо подключите свои файлы read-only через Compose override и задайте
+`ASN_DATABASE` / `GEOIP_CITY_DATABASE`.
+После обновления бинарника tracker и assets должны обновиться на сайте;
+долгий proxy/CDN-кэш может задержать новую версию.
 
 ## Доступ для коллег
 

@@ -6,7 +6,7 @@
 
 - Go 1.26+ и Make; используйте версию из `go.mod` или более новую совместимую.
 - Node.js 22+ и npm для проверок/обновления frontend-бандлов. Сам SDK поддерживает Node.js 18+.
-- PostgreSQL 17 для интеграционных тестов; Docker Compose v2 для контейнерного запуска.
+- PostgreSQL 18 для интеграционных тестов, как в Compose и CI; Docker Compose v2 для контейнерного запуска.
 - Python 3 нужен только для demo-сайта и проверки развёртывания.
 
 ```bash
@@ -47,7 +47,7 @@ make test-integration
 docker rm -f clickshield-test-db
 ```
 
-GitHub Actions поднимает PostgreSQL 17 и запускает `make check` с тестовым DSN;
+GitHub Actions поднимает PostgreSQL 18 и запускает `make check` с тестовым DSN;
 поэтому проверки хранилища и HTTP API не пропускаются.
 
 Регистрацию по приглашению можно проверить настоящей формой в Chromium и WebKit:
@@ -71,6 +71,29 @@ PostgreSQL отдельно, укажите его реальный адрес. 
 
 Самый простой запуск всей системы — `make docker-up` после заполнения `.env`.
 Assets и миграции встроены в Go-бинарник: после их изменения нужна пересборка.
+
+Для прямого запуска из корня репозитория, после экспорта конфигурации:
+
+```bash
+make build
+bin/clickshield migrate
+bin/clickshield bootstrap
+bin/clickshield serve
+```
+
+В другом терминале экспортируйте ту же конфигурацию и запустите worker:
+
+```bash
+bin/clickshield worker
+```
+
+`make run` запускает только `serve`: миграции, bootstrap и worker нужны отдельно.
+Bootstrap требует `ADMIN_PASSWORD` и постоянный `BOOTSTRAP_PROJECT_KEY`.
+Для геолокации при запуске вне Docker задайте `GEOIP_CITY_DATABASE` и
+`ASN_DATABASE` с путями к локальным MMDB и `.tsv.gz`: `make build` не скачивает
+эти базы. Без `GEOIP_CITY_DATABASE` геолокация по MMDB отключена; отсутствие
+ASN-базы записывается как предупреждение. Docker-сборка загружает обе базы
+и Compose задаёт пути к ним автоматически.
 
 ## Frontend и генерируемые файлы
 
@@ -123,9 +146,8 @@ make check
 перенос raw/replay, затем удаляет эту БД. Тестовые данные не должны смешиваться
 с рабочими. Тесты бизнес-правил, очередей и shutdown сервиса работают без БД.
 
-Для запуска бинарника экспортируйте конфигурацию и явно выполните `migrate`,
-`bootstrap`; запускайте `serve` и `worker` в разных терминалах. Bootstrap требует
-постоянный публичный ключ проекта. Backfill выполняется отдельными командами.
+Backfill выполняется отдельными командами; порядок обновления существующей
+установки описан в [архитектурном руководстве](architecture-refactor.md).
 
 `GET /tracker.js` собирает `tracker-transport.js`, `tracker-session.js` и
 `tracker.js` внутри одной замкнутой области видимости. Сниппет остаётся прежним;
