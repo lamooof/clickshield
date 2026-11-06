@@ -17,7 +17,8 @@ make build
 ```
 
 `make check` не изменяет исходники: проверяет gofmt, `go vet`, race-тесты Go,
-синтаксис всех JS/MJS в assets/scripts/sdk и тесты SDK/приватности replay.
+синтаксис всех JS/MJS в assets/scripts/sdk и тесты SDK, приватности/lifecycle replay и трекера (размер пакетов, retry,
+недоступное хранилище, смена визита после простоя).
 `make fmt` форматирует Go. `go mod verify` проверяет загруженные зависимости.
 `go mod tidy` выполняйте при изменении зависимостей и проверяйте diff, а не при каждом запуске.
 
@@ -136,3 +137,7 @@ make check
 Для запуска бинарника экспортируйте конфигурацию и явно выполните `migrate`,
 `bootstrap`; запускайте `serve` и `worker` в разных терминалах. Bootstrap требует
 постоянный публичный ключ проекта. Backfill выполняется отдельными командами.
+
+`GET /tracker.js` собирает `tracker-transport.js`, `tracker-session.js` и
+`tracker.js` внутри одной замкнутой области видимости. Сниппет остаётся прежним;
+загружать отдельный `/assets/tracker.js` вместо `/tracker.js` нельзя.

@@ -24,9 +24,13 @@
       for(const [name,child] of Object.entries(value)){if(name==='attributes')continue;if(Array.isArray(child))child.forEach(walk);else if(child&&typeof child==='object')walk(child)}
     };walk(event);return event;
   }
-  window.ClickShieldReplay={async start(cfg){
-    if(window.__clickshieldReplayStarted)return;window.__clickshieldReplayStarted=true;
-    await loadScript(`${cfg.apiBase}/assets/rrweb-record.js`);
+  let activeStop = null;
+  window.ClickShieldReplay={stop(){activeStop?.()},async start(cfg){
+    activeStop?.();
+    let cancelled = false;
+    activeStop = () => { cancelled = true; };
+    if (!window.rrwebRecord) await loadScript(`${cfg.apiBase}/assets/rrweb-record.js`);
+    if (cancelled) return;
     const record=window.rrwebRecord?.record||window.rrwebRecord;
     if(typeof record!=='function')return;
     const pageID=crypto.randomUUID();let sequence=0,events=[],pending=[],sending=false,stopped=false,stopRecording;
@@ -62,16 +66,27 @@
     });
     status('recording');
     const timer=setInterval(()=>{prepare();send();if(stopped&&!pending.length)clearInterval(timer)},5000);
-    document.addEventListener('visibilitychange',()=>{if(document.hidden){prepare();send()}});
-    addEventListener('pagehide',()=>{
+    const onVisibility = () => {if(document.hidden){prepare();send()}};
+    document.addEventListener('visibilitychange',onVisibility);
+    const onPageHide = () => {
       prepare();
       // Beacon has a shared ~64 KiB browser budget. Larger parts have already
       // been sent while the page was active and remain visibly incomplete on loss.
       let budget=60000;
       for(const p of pending){const size=new TextEncoder().encode(p.body).length;if(size>budget)break;if(!navigator.sendBeacon?.(endpoint,new Blob([p.body],{type:'text/plain;charset=UTF-8'})))break;budget-=size}
-      stop();clearInterval(timer);
-    },{capture:true});
-    setTimeout(()=>{prepare();stop();send();status('duration_limit')},60*60*1000);
+      finish();
+    };
+    addEventListener('pagehide',onPageHide,{capture:true});
+    const durationTimer=setTimeout(()=>{finish();status('duration_limit')},60*60*1000);
+    function finish(){
+      prepare();stop();send();clearTimeout(durationTimer);
+      document.removeEventListener('visibilitychange',onVisibility);
+      removeEventListener('pagehide',onPageHide,{capture:true});
+      if(activeStop===finish)activeStop=null;
+      if(!pending.length)clearInterval(timer);
+    }
+    activeStop=finish;
     prepare();send();
+    return finish;
   }};
 })();
