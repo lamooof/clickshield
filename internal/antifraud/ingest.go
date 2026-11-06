@@ -31,6 +31,7 @@ type PreparedBatch struct {
 	Browser, OS          string
 	Attribution          traffic.Attribution
 	BlockedClasses       []string
+	Active               bool
 	Events               []PreparedEvent
 }
 
@@ -78,6 +79,9 @@ func PrepareBatch(p domain.Project, b domain.EventBatch, remote domain.RemoteMet
 		prepared.BlockedClasses = []string{domain.Bot}
 	}
 	for i, event := range b.Events {
+		if event.Type != "heartbeat" && event.Type != "visibility" && event.Type != "automation" || event.ActiveMS > 0 || (event.Type == "visibility" && event.Visible != nil && *event.Visible) {
+			prepared.Active = true
+		}
 		at := time.UnixMilli(event.TS).UTC()
 		if event.TS <= 0 || at.Before(now.Add(-7*24*time.Hour)) || at.After(now.Add(10*time.Minute)) {
 			at = now

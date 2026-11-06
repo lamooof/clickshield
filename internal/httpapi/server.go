@@ -232,15 +232,17 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 func (s *Server) tracker(w http.ResponseWriter, r *http.Request) {
-	b, e := assets.ReadFile("assets/tracker.js")
-	if e != nil {
-		http.NotFound(w, r)
-		return
-	}
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("(() => {\n"))
+	for _, name := range []string{"tracker-transport.js", "tracker-session.js", "tracker.js"} {
+		b, _ := assets.ReadFile("assets/" + name)
+		_, _ = w.Write(b)
+		_, _ = w.Write([]byte("\n"))
+	}
+	_, _ = w.Write([]byte("})();\n"))
 }
+
 func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if strings.Contains(name, "/") || strings.Contains(name, "..") {
@@ -355,7 +357,11 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		if r.URL.Path != "/healthz" {
-			s.log.Info("http", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(start).Milliseconds())
+			path := r.URL.Path
+			if strings.HasPrefix(path, "/invite/") {
+				path = "/invite/[REDACTED]"
+			}
+			s.log.Info("http", "method", r.Method, "path", path, "duration_ms", time.Since(start).Milliseconds())
 		}
 	})
 }
