@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ClickShield</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=11">
+  <link rel="stylesheet" href="/assets/styles.css?v=12">
 </head>
 <body>
   <header class="topbar">
@@ -122,8 +122,10 @@
     </section>
   </main>
   <dialog id="detail"><button id="detail-close" class="dialog-close">×</button><div id="detail-content"></div></dialog>
+  <dialog id="replay-dialog" class="replay-dialog"><div class="replay-head"><strong>Запись посещения</strong><span id="replay-info" class="muted"></span><button id="replay-delete" type="button">Удалить запись</button><button id="replay-close" type="button" class="dialog-close" aria-label="Закрыть">×</button></div><div id="replay-body"></div></dialog>
   <div id="toast" class="toast hidden"></div>
-  <script src="/assets/admin.js?v=14"></script>
+  <script src="/assets/admin.js?v=15"></script>
+  <script src="/assets/admin-replay.js?v=1"></script>
   <script src="/assets/admin-access.js?v=1"></script>
   <script src="/assets/admin-api.js?v=1"></script>
 </body>

@@ -20,6 +20,10 @@ func (s *Service) Replay(ctx context.Context, id string) (Data, error) {
 	if len(chunks) > 0 && s.objects == nil {
 		return result, fmt.Errorf("replay object storage is not configured")
 	}
+	raws, err := s.fetchAll(ctx, chunks)
+	if err != nil {
+		return result, err
+	}
 	var page *Page
 	var group bytes.Buffer
 	lastSeq := -1
@@ -41,7 +45,7 @@ func (s *Service) Replay(ctx context.Context, id string) (Data, error) {
 		}
 		page.Events = append(page.Events, events...)
 	}
-	for _, chunk := range chunks {
+	for i, chunk := range chunks {
 		pid, url, index, seq, part, count := chunk.PageID, chunk.PageURL, chunk.PageIndex, chunk.Sequence, chunk.PartIndex, chunk.PartCount
 
 		if page == nil || page.ID != pid {
@@ -65,18 +69,7 @@ func (s *Service) Replay(ctx context.Context, id string) (Data, error) {
 			page.Incomplete = true
 			continue
 		}
-		payload, err := s.objects.Get(ctx, chunk.Key)
-		if err != nil {
-			return result, err
-		}
-		raw, err := decompressReplay(payload)
-		if err != nil {
-			return result, err
-		}
-		if checksum(raw) != chunk.Checksum {
-			return result, ErrConflict
-		}
-
+		raw := raws[i]
 		if part != nextPart || count != expected {
 			page.Incomplete = true
 		}

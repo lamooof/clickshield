@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"github.com/lamooof/clickshield/internal/replay"
 	"github.com/lamooof/clickshield/internal/store"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -81,7 +84,22 @@ func (s *Server) replayData(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "could not load replay")
 		return
 	}
-	writeJSON(w, 200, data)
+	writeMaybeGzipJSON(w, r, data)
+}
+
+// writeMaybeGzipJSON compresses large replay responses; rrweb JSON shrinks 5–10×.
+func writeMaybeGzipJSON(w http.ResponseWriter, r *http.Request, v any) {
+	w.Header().Add("Vary", "Accept-Encoding")
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		writeJSON(w, 200, v)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Encoding", "gzip")
+	w.WriteHeader(200)
+	z, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+	_ = json.NewEncoder(z).Encode(v)
+	_ = z.Close()
 }
 func (s *Server) deleteReplay(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
