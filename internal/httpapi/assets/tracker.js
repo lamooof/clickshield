@@ -124,9 +124,9 @@
     emitScroll();
     addEventListener('resize',emitScroll,{passive:true});
     event('automation', { extra: automation });
-    let lastPageURL=location.href;
+    const pageKey=()=>location.href.split('#')[0];let lastPageURL=pageKey();
     addEventListener('clickshield:pageview', () => {
-      if(lastPageURL===location.href)return;lastPageURL=location.href;
+      if(lastPageURL===pageKey())return;lastPageURL=pageKey();
       if (activity()) { flush(false); return; }
       visit.nextPage();
       event('pageview', { page_index: state.pageIndex, extra: {page_url:safeURL(location.href)} });
@@ -206,6 +206,8 @@
     flush(false);
     fetch(`${apiBase}/v1/tracker/config?key=${encodeURIComponent(key)}`,{mode:'cors',credentials:'omit'})
       .then(r=>r.ok?r.json():null).then(cfg=>{replayConfig=cfg;startReplay()}).catch(()=>{});
+    // pagehide stops recording; a page restored from back/forward cache needs a new one.
+    addEventListener('pageshow',(e)=>{if(e.persisted)startReplay()});
 
   } catch (_) {
     // Tracker failures are intentionally isolated from the host website.
